@@ -274,9 +274,41 @@ firebase.initializeApp({
 });
 var db = firebase.database();
 
+// ─── 更新後の自動再接続 ──────────────────────────────────────
+window.addEventListener('load', function() {
+  var saved = sessionStorage.getItem('pokerSession');
+  if (!saved) return;
+  try {
+    var s = JSON.parse(saved);
+    if (!s.roomCode || s.mySlot === null) return;
+    roomCode = s.roomCode;
+    mySlot   = s.mySlot;
+    db.ref('rooms/' + roomCode).once('value').then(function(snap) {
+      if (!snap.exists()) { clearSession(); return; }
+      if (s.screen === 'waiting') {
+        document.getElementById('roomCodeDisplay').textContent = roomCode;
+        showScreen('waiting');
+      } else {
+        showScreen('game');
+      }
+      subscribeRoom();
+      toast('部屋に再接続しました ✓', 'ok');
+    }).catch(function() { clearSession(); });
+  } catch(e) { clearSession(); }
+});
+
 // ─── 状態 ──────────────────────────────────────────────────
 var mySlot = null, roomCode = null, roomListener = null;
 var colorMap = {0:'p1', 1:'p2', 2:'p3'};
+
+function saveSession(screen) {
+  sessionStorage.setItem('pokerSession', JSON.stringify({
+    roomCode: roomCode, mySlot: mySlot, screen: screen||'game'
+  }));
+}
+function clearSession() {
+  sessionStorage.removeItem('pokerSession');
+}
 
 // ─── ユーティリティ ─────────────────────────────────────────
 function showScreen(id) {
@@ -322,6 +354,7 @@ function createRoom() {
   rRef().set(data).then(function() {
     loading(false);
     document.getElementById('roomCodeDisplay').textContent = roomCode;
+    saveSession('waiting');
     showScreen('waiting');
     subscribeRoom();
   }).catch(function(e) {
@@ -349,6 +382,7 @@ function joinRoom() {
       name:name, chips:room.startChips, bet:0, folded:false
     }).then(function() {
       loading(false);
+      saveSession('game');
       showScreen('game');
       subscribeRoom();
       toast(name + ' が参加しました！', 'ok');
@@ -364,6 +398,7 @@ function startGame() {
   rRef('players').once('value').then(function(snap) {
     var players = snap.val() || {};
     if (Object.keys(players).length < 2) { toast('2人以上必要です', 'error'); return; }
+    saveSession('game');
     showScreen('game');
   });
 }
@@ -518,6 +553,7 @@ function dissolveRoom() {
     if (roomListener) { rRef().off('value', roomListener); roomListener = null; }
     db.ref('rooms/' + roomCode).remove();
   }
+  clearSession();
   roomCode = null; mySlot = null;
   showScreen('top');
 }
